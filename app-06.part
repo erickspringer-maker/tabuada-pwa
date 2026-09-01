@@ -1,0 +1,130 @@
+zeFacts(attempts, progress) {
+  const grouped = new Map()
+  for (const attempt of attempts) {
+    const current = grouped.get(attempt.factKey) || { key: attempt.factKey, wrong: 0, attempts: 0, lastError: null }
+    current.attempts += 1
+    if (!attempt.correct) {
+      current.wrong += 1
+      current.lastError = attempt.errorCode
+    }
+    grouped.set(attempt.factKey, current)
+  }
+  return [...grouped.values()]
+    .map((item) => ({ ...item, confidence: confidenceOf(progress[item.key]) }))
+    .sort((left, right) => (right.wrong - left.wrong) || (left.confidence - right.confidence))
+    .slice(0, 6)
+}
+
+function summarizeTiming(attempts) {
+  const grouped = new Map()
+  for (const attempt of attempts) {
+    if (!attempt.factKey) continue
+    const item = grouped.get(attempt.factKey) || { key: attempt.factKey, attempts: 0, timed: [], independent: [], fastWrong: 0 }
+    item.attempts += 1
+    if (Number.isFinite(attempt.elapsedMs) && attempt.elapsedMs > 0) item.timed.push(attempt.elapsedMs)
+    if (attempt.correct && attempt.hintLevel === 0 && Number.isFinite(attempt.elapsedMs) && attempt.elapsedMs > 0) item.independent.push(attempt.elapsedMs)
+    if (!attempt.correct && Number.isFinite(attempt.elapsedMs) && attempt.elapsedMs > 0 && attempt.elapsedMs < 1800) item.fastWrong += 1
+    grouped.set(attempt.factKey, item)
+  }
+
+  const profiles = [...grouped.values()].map((item) => {
+    const latestIndependent = item.independent.at(-1)
+    const previousIndependent = item.independent.slice(0, -1)
+    const baseline = median(previousIndependent.length >= 2 ? previousIndependent : item.independent)
+    const slowRecall = item.attempts >= 3 && item.independent.length >= 3 && latestIndependent > 4000 && latestIndependent > baseline * 1.8
+    const improving = item.independent.length >= 3 && latestIndependent < baseline * 0.8
+    return {
+      key: item.key,
+      attempts: item.attempts,
+      medianMs: median(item.timed),
+      slowRecall,
+      fastGuess: item.attempts >= 3 && item.fastWrong >= 2,
+      improving
+    }
+  })
+
+  return {
+    all: profiles,
+    slowRecall: profiles.filter((item) => item.slowRecall).sort((left, right) => right.medianMs - left.medianMs),
+    fastGuess: profiles.filter((item) => item.fastGuess),
+    improving: profiles.filter((item) => item.improving)
+  }
+}
+
+function analyzeAttempts(attempts = [], progress = {}) {
+  const errors = summarizeErrors(attempts)
+  const facts = summarizeFacts(attempts, progress)
+  const timing = summarizeTiming(attempts)
+  const top = errors[0]
+  const recommendation = top
+    ? RECOMMENDATIONS[top.code]
+    : timing.slowRecall.length
+      ? 'Reencontre os fatos demorados em novas voltas da mesma tabuada, com pistas somente quando necessário.'
+      : timing.fastGuess.length
+        ? 'Faça uma pausa curta entre as contas e recupere um fato por vez antes de responder.'
+        : 'Continue misturando fatos novos e conhecidos para fortalecer a lembrança.'
+  return {
+    attempts: attempts.length, timing,
+    errors,
+    facts,
+    topError: top || null,
+    recommendation,
+    message: top ? `Notei ${top.count} sinal(is) de ${top.label}. Vamos reforçar isso em outra forma.` : timing.slowRecall.length || timing.fastGuess.length ? 'Pingo encontrou alguns fatos que merecem outra passagem. Vamos por partes.' : 'Pingo ainda está conhecendo seus caminhos. Cada tentativa ajuda a escolher a próxima revisão.'
+  }
+}
+
+function buildSessionReport(sessionAttempts, queue, allAttempts, progress, context = {}) {
+  const solved = new Set(sessionAttempts.filter((attempt) => attempt.correct).map((attempt) => attempt.questionId)).size
+  const independent = sessionAttempts.filter((attempt) => attempt.correct && attempt.hintLevel === 0).length
+  const assisted = sessionAttempts.filter((attempt) => attempt.correct && attempt.hintLevel > 0).length
+  const report = analyzeAttempts(allAttempts, progress)
+  return {
+    questions: queue.length,
+    solved,
+    independent,
+    assisted,
+    attempts: sessionAttempts.length,
+    mode: context.mode || queue[0]?.mode || null,
+    table: context.table ?? queue[0]?.table ?? null,
+    focusFacts: report.facts.slice(0, 3),
+    bot: report,
+    finishedAt: new Date().toISOString()
+  }
+}
+
+
+
+exports.analyzeAttempts = analyzeAttempts;
+exports.buildSessionReport = buildSessionReport;
+exports.RECOMMENDATIONS = RECOMMENDATIONS;
+},"/src/infrastructure/storage.js": (module, exports, require) => {
+const {  APP_VERSION, SCHEMA_VERSION  } = require("/src/domain/contracts.js");const STORAGE_KEY = 'tabuada-em-jogo.progress.v1'
+
+function createId() {
+  return globalThis.crypto?.randomUUID?.() || `tj-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+}
+
+function createInitialState() {
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    appVersion: APP_VERSION,
+    route: 'home',
+    profile: { id: createId(), nickname: 'Exploradora', createdAt: new Date().toISOString() },
+    settings: { sound: false, reducedMotion: false },
+    attempts: [],
+    factProgress: {},
+    sessionsCompleted: 0,
+    lastReport: null
+  }
+}
+
+function validShape(value) {
+  return value && value.schemaVersion === SCHEMA_VERSION && Array.isArray(value.attempts) && value.factProgress && typeof value.factProgress === 'object'
+}
+
+function loadState(storage = globalThis.localStorage) {
+  if (!storage) return createInitialState()
+  try {
+    const parsed = JSON.parse(storage.getItem(STORAGE_KEY) || 'null')
+    if (!validShape(parsed)) return createInitialState()
+    ret
