@@ -1,0 +1,23 @@
+small></strong><strong>${Object.keys(state.factProgress).length}<small>fatos vistos</small></strong></div></article></section><section class="adult-grid"><article class="panel"><span class="eyebrow">Padrões observados</span><h2>Onde reforçar</h2><ul class="report-list">${errorRows}</ul></article><article class="panel"><span class="eyebrow">Fatos em atenção</span><h2>Prioridade local</h2><ul class="report-list">${factRows}</ul></article></section><section class="adult-grid"><article class="panel"><span class="eyebrow">Sinal silencioso</span><h2>Corretos que ainda pedem fluência</h2><ul class="report-list">${slowRows}</ul><p class="microcopy">Tempo aproximado, local e invisível para a criança. Não é nota nem diagnóstico.</p></article><article class="panel"><span class="eyebrow">Checagem prudente</span><h2>Respostas rápidas a observar</h2><ul class="report-list">${guessRows}</ul><p class="microcopy">O bot só sugere este padrão depois de repetições em um mesmo fato.</p></article></section><section class="panel grid-panel"><div class="section-heading compact"><div><span class="eyebrow">Mapa dos fatos</span><h2>Confiança por fato</h2></div><p>“${STATUS_LABELS.steady}” não substitui avaliação escolar.</p></div>${factTable(state.factProgress)}</section><section class="panel data-controls"><span class="eyebrow">Controle dos dados</span><h2>Preferências e cópia local</h2><label for="nickname">Apelido opcional<input id="nickname" maxlength="20" value="${escapeHtml(state.profile.nickname)}"></label><div class="control-row"><button class="button button-secondary" data-save>Salvar apelido</button><button class="button button-secondary" data-export>Exportar JSON</button><button class="button button-danger" data-delete>Apagar progresso</button></div><p class="microcopy">Exportar antes de apagar. O arquivo contém apenas dados pedagógicos locais.</p></section></main>`)
+  page.querySelector('[data-save]').addEventListener('click', () => store.setNickname(page.querySelector('#nickname').value))
+  page.querySelector('[data-export]').addEventListener('click', () => downloadJson(exportState(state)))
+  page.querySelector('[data-delete]').addEventListener('click', () => { if (globalThis.confirm?.('Apagar todo o progresso local?')) store.reset() })
+  return page
+}
+
+exports.adultScreen = adultScreen;
+},"/src/ui/components/pingo-tip.js": (module, exports, require) => {
+const {  view, escapeHtml  } = require("/src/ui/view.js");class PingoTip extends HTMLElement {
+  connectedCallback() { this.render() }
+
+  render() {
+    const tone = this.getAttribute('tone') || 'neutral'
+    const message = this.getAttribute('message') || ''
+    this.replaceChildren(view(`<aside class="pingo-tip pingo-tip-${tone}" aria-live="polite"><span class="pingo-mark" aria-hidden="true">✦</span><div><strong>Pingo</strong><p>${escapeHtml(message)}</p></div></aside>`))
+  }
+}
+
+customElements.define('pingo-tip', PingoTip)
+
+exports.PingoTip = PingoTip;
+}};const cache=new Map();const require=(id)=>{if(cache.has(id))return cache.get(id).exports;const factory=modules[id];if(!factory)throw new Error('Módulo ausente: '+id);const module={exports:{}};cache.set(id,module);factory(module,module.exports,require);return module.exports};require('/src/main.js')})()
