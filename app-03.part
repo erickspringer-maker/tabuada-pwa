@@ -1,0 +1,155 @@
+ = 0
+const TABLE_MAX = 10
+
+const TABLE_ORDER = Object.freeze([0, 1, 2, 5, 10, 3, 4, 6, 7, 8, 9])
+
+const ERROR_CODES = Object.freeze({
+  SUM_INSTEAD_PRODUCT: 'SUM_INSTEAD_PRODUCT',
+  NEIGHBOR_FACT: 'NEIGHBOR_FACT',
+  OFF_BY_ONE_GROUP: 'OFF_BY_ONE_GROUP',
+  ZERO_ONE_CONFUSION: 'ZERO_ONE_CONFUSION',
+  COUNTING_DRIFT: 'COUNTING_DRIFT',
+  GUESS_PATTERN: 'GUESS_PATTERN',
+  UNKNOWN: 'UNKNOWN'
+})
+
+const MODES = Object.freeze({
+  sequential: Object.freeze({ label: 'Trilha sequencial', length: 33, cycles: 3 }),
+  guided: Object.freeze({ label: 'Treino guiado', length: 12 }),
+  reinforce: Object.freeze({ label: 'Reforço do Pingo', length: 18 }),
+  marathon: Object.freeze({ label: 'Maratona', length: 30 }),
+  complete: Object.freeze({ label: 'Varredura completa', length: 66 })
+})
+
+const FACT_STATUS = Object.freeze({
+  NEW: 'new',
+  PRACTICE: 'practice',
+  REVISIT: 'revisit',
+  STEADY: 'steady'
+})
+
+exports.APP_VERSION = APP_VERSION;
+exports.SCHEMA_VERSION = SCHEMA_VERSION;
+exports.TABLE_MIN = TABLE_MIN;
+exports.TABLE_MAX = TABLE_MAX;
+exports.TABLE_ORDER = TABLE_ORDER;
+exports.ERROR_CODES = ERROR_CODES;
+exports.MODES = MODES;
+exports.FACT_STATUS = FACT_STATUS;
+},"/src/domain/math.js": (module, exports, require) => {
+const {  TABLE_MAX, TABLE_MIN  } = require("/src/domain/contracts.js");/** @param {number} a @param {number} b */
+function canonicalKey(a, b) {
+  const values = [Number(a), Number(b)].sort((left, right) => left - right)
+  return `${values[0]}x${values[1]}`
+}
+
+/** @param {string} key */
+function parseFactKey(key) {
+  const match = /^([0-9]+)x([0-9]+)$/.exec(String(key))
+  if (!match) return null
+  return { a: Number(match[1]), b: Number(match[2]) }
+}
+
+/** @param {unknown} value */
+function normalizeInteger(value) {
+  if (typeof value === 'number') return Number.isInteger(value) ? value : Number.NaN
+  const text = String(value ?? '').trim().replaceAll('.', '').replace(',', '.')
+  if (!text || !/^-?\d+$/.test(text)) return Number.NaN
+  const number = Number(text)
+  return Number.isSafeInteger(number) ? number : Number.NaN
+}
+
+/** @param {number} a @param {number} b */
+function assertValidFactors(a, b) {
+  if (!Number.isInteger(a) || !Number.isInteger(b) || a < TABLE_MIN || b < TABLE_MIN || a > TABLE_MAX || b > TABLE_MAX) {
+    throw new RangeError(`Fatores fora da tabuada do MVP: ${a} × ${b}`)
+  }
+  return true
+}
+
+/** @param {number} a @param {number} b */
+function productOf(a, b) {
+  assertValidFactors(a, b)
+  return a * b
+}
+
+/** @param {object} question */
+function assertValidQuestion(question) {
+  if (!question || !question.id || !question.factKey || !question.prompt) throw new Error('Questão de tabuada incompleta')
+  assertValidFactors(question.a, question.b)
+  if (question.answer !== productOf(question.a, question.b)) throw new Error(`Gabarito inválido: ${question.id}`)
+  if (!Array.isArray(question.hints) || question.hints.length < 3) throw new Error(`Pistas insuficientes: ${question.id}`)
+  if (!['retrieval', 'groups', 'array', 'decomposition', 'family'].includes(question.representation)) throw new Error(`Representação inválida: ${question.id}`)
+  return true
+}
+
+/** @param {object} question @param {unknown} response */
+function validateAnswer(question, response) {
+  assertValidQuestion(question)
+  return normalizeInteger(response) === question.answer
+}
+
+/** @param {number} seed */
+function seededRandom(seed) {
+  let value = seed >>> 0
+  return () => {
+    value += 0x6D2B79F5
+    let result = value
+    result = Math.imul(result ^ result >>> 15, result | 1)
+    result ^= result + Math.imul(result ^ result >>> 7, result | 61)
+    return ((result ^ result >>> 14) >>> 0) / 4294967296
+  }
+}
+
+/** @param {number} a @param {number} b @param {string} representation @param {number} occurrence */
+function createFactQuestion(a, b, representation = 'retrieval', occurrence = 0) {
+  assertValidFactors(a, b)
+  const answer = a * b
+  const factKey = canonicalKey(a, b)
+  const prompts = {
+    retrieval: `${a} × ${b} = ?`,
+    groups: `${a} grupos com ${b} em cada. Quantos há ao todo?`,
+    array: `Uma grade tem ${a} linhas e ${b} colunas. Quantas casas?`,
+    decomposition: `Use ${a} × ${Math.max(0, b - 1)} + ${a}. Quanto dá ${a} × ${b}?`,
+    family: `Qual produto fecha esta família? ${a} × ${b} = ?`
+  }
+  const hints = [
+    `Imagine ${a} grupos iguais com ${b} em cada.`,
+    b > 1 ? `Aproxime pelo fato ${a} × ${b - 1} e acrescente um grupo de ${a}.` : 'Vezes zero deixa tudo vazio; vezes um conserva um grupo.',
+    `Confira contando os grupos e depois escreva ${a} × ${b}.`
+  ]
+  return {
+    id: `fact-${factKey}-${representation}`,
+    factKey,
+    a,
+    b,
+    answer,
+    prompt: prompts[representation] || prompts.retrieval,
+    representation,
+    difficulty: Math.max(a, b),
+    hints,
+    explanation: `${a} × ${b} significa ${a} grupos de ${b}: ${answer}.`,
+    source: 'banco determinístico 0–10'
+  }
+}
+
+function buildFactBank() {
+  const facts = []
+  for (let a = TABLE_MIN; a <= TABLE_MAX; a += 1) {
+    for (let b = a; b <= TABLE_MAX; b += 1) {
+      facts.push({ key: canonicalKey(a, b), a, b, answer: a * b })
+    }
+  }
+  return facts
+}
+
+exports.canonicalKey = canonicalKey;
+exports.parseFactKey = parseFactKey;
+exports.normalizeInteger = normalizeInteger;
+exports.assertValidFactors = assertValidFactors;
+exports.productOf = productOf;
+exports.assertValidQuestion = assertValidQuestion;
+exports.validateAnswer = validateAnswer;
+exports.seededRandom = seededRandom;
+exports.createFactQuestion = createFactQuestion;
+e
