@@ -1,0 +1,120 @@
+ random = seededRandom(seed)
+  return [...factBank].sort((left, right) => {
+    const scoreDifference = weaknessScore(right, progress, now) - weaknessScore(left, progress, now)
+    return scoreDifference || random() - 0.5
+  })
+}
+
+function questionsFromFacts(facts, mode, count) {
+  return facts.slice(0, count).map((fact, index) => questionForFact(fact, index, mode))
+}
+
+function buildSequentialQueue(table, cycles = MODES.sequential.cycles) {
+  const queue = []
+  for (let cycle = 0; cycle < cycles; cycle += 1) {
+    const multipliers = Array.from({ length: TABLE_MAX - TABLE_MIN + 1 }, (_, index) => index + TABLE_MIN)
+    if (cycle === cycles - 1) multipliers.reverse()
+    multipliers.forEach((multiplier, index) => queue.push(sequentialQuestionFor(table, multiplier, cycle, index)))
+  }
+  return queue
+}
+
+function buildSessionQueue(mode = 'sequential', progress = {}, seed = Date.now(), now = new Date(), options = {}) {
+  const config = MODES[mode] || MODES.guided
+  if (mode === 'sequential') return buildSequentialQueue(Number.isInteger(options.table) ? options.table : suggestedTable(progress), config.cycles)
+  if (mode === 'complete') {
+    const random = seededRandom(seed)
+    return [...factBank]
+      .sort(() => random() - 0.5)
+      .map((fact, index) => questionForFact(fact, index, 'complete'))
+  }
+  const ranked = rankedFacts(progress, seed, now)
+  if (mode === 'reinforce') {
+    const focus = ranked.slice(0, 6)
+    const queue = []
+    for (let round = 0; round < 3; round += 1) {
+      focus.forEach((fact, index) => queue.push(questionForFact(fact, round * focus.length + index, 'reinforce')))
+    }
+    return queue
+  }
+  return questionsFromFacts(ranked, mode, config.length)
+}
+
+function explainSelection(question, progress = {}) {
+  const item = progress[question.factKey]
+  if (!item) return 'fato novo para entrar na memória'
+  if (item.wrong > 0) return 'fato com erro recente para reforçar'
+  if (isDue(item)) return 'revisão vencida'
+  return 'mistura de manutenção'
+}
+
+exports.tableReadiness = tableReadiness;
+exports.suggestedTable = suggestedTable;
+exports.buildSequentialQueue = buildSequentialQueue;
+exports.buildSessionQueue = buildSessionQueue;
+exports.explainSelection = explainSelection;
+},"/src/content/facts.js": (module, exports, require) => {
+const {  buildFactBank, createFactQuestion, assertValidQuestion  } = require("/src/domain/math.js");const factBank = Object.freeze(buildFactBank())
+const factByKey = Object.freeze(Object.fromEntries(factBank.map((fact) => [fact.key, fact])))
+
+function questionForFact(fact, index = 0, mode = 'guided') {
+  const directions = [
+    [fact.a, fact.b],
+    [fact.b, fact.a]
+  ]
+  const [a, b] = directions[index % 2]
+  const representations = mode === 'reinforce'
+    ? ['retrieval', 'array', 'decomposition']
+    : ['retrieval', 'groups', 'family', 'retrieval']
+  const question = createFactQuestion(a, b, representations[index % representations.length], index)
+  question.mode = mode
+  assertValidQuestion(question)
+  return question
+}
+
+function sequentialQuestionFor(table, multiplier, cycle = 0, sequenceIndex = multiplier) {
+  const fact = factByKey[`${Math.min(table, multiplier)}x${Math.max(table, multiplier)}`]
+  if (!fact) throw new RangeError(`Fato inexistente na trilha: ${table} × ${multiplier}`)
+  const question = createFactQuestion(table, multiplier, 'retrieval', cycle)
+  question.id = `sequence-${table}x${multiplier}-cycle-${cycle}`
+  question.mode = 'sequential'
+  question.table = table
+  question.multiplier = multiplier
+  question.cycle = cycle
+  question.sequenceIndex = sequenceIndex
+  question.phase = 'sequence'
+  assertValidQuestion(question)
+  return question
+}
+
+function allQuestions() {
+  return factBank.map((fact, index) => questionForFact(fact, index, 'complete'))
+}
+
+exports.factBank = factBank;
+exports.factByKey = factByKey;
+exports.questionForFact = questionForFact;
+exports.sequentialQuestionFor = sequentialQuestionFor;
+exports.allQuestions = allQuestions;
+},"/src/application/bot.js": (module, exports, require) => {
+const {  ERROR_CODES  } = require("/src/domain/contracts.js");const {  ERROR_LABELS  } = require("/src/domain/errors.js");const {  confidenceOf, median  } = require("/src/domain/mastery.js");const RECOMMENDATIONS = Object.freeze({
+  [ERROR_CODES.SUM_INSTEAD_PRODUCT]: 'Reforce com grupos iguais: desenhe 3 grupos de 4 e escreva 4 + 4 + 4 antes de 3 × 4.',
+  [ERROR_CODES.NEIGHBOR_FACT]: 'Reforce por fato vizinho: use o produto conhecido, acrescente ou retire um grupo e confira.',
+  [ERROR_CODES.OFF_BY_ONE_GROUP]: 'Reforce contando grupos: marque cada grupo uma vez e confira se nenhum entrou ou saiu.',
+  [ERROR_CODES.ZERO_ONE_CONFUSION]: 'Reforce vezes zero e vezes um com caixas: vazias ficam em zero; uma caixa conserva a quantidade.',
+  [ERROR_CODES.COUNTING_DRIFT]: 'Reforce com uma grade pequena e conte por linhas antes de responder.',
+  [ERROR_CODES.GUESS_PATTERN]: 'Reforce em blocos de quatro, sem pressa: pensar também faz parte do treino.',
+  [ERROR_CODES.UNKNOWN]: 'Continue alternando conta, grupos e grade até aparecer um padrão mais claro.'
+})
+
+function summarizeErrors(attempts) {
+  const counts = {}
+  for (const attempt of attempts) {
+    if (attempt.errorCode) counts[attempt.errorCode] = (counts[attempt.errorCode] || 0) + 1
+  }
+  return Object.entries(counts)
+    .sort((left, right) => right[1] - left[1])
+    .map(([code, count]) => ({ code, count, label: ERROR_LABELS[code] || 'padrão não identificado' }))
+}
+
+function summari
