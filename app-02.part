@@ -1,0 +1,130 @@
+.mode, table: question.table ?? null,
+      cycle: question.cycle ?? null, sequenceIndex: question.sequenceIndex ?? null,
+      response: String(response ?? '').trim().slice(0, 20), correct,
+      hintLevel: this.session.hints, representation: question.representation,
+      elapsedMs: normalizeElapsedMs(clockNow() - this.session.questionStartedAt) || 0,
+      errorCode: null, occurredAt: new Date().toISOString()
+    }
+    if (!correct) attempt.errorCode = classifyFactError(question, response, { recentAttempts: this.state.attempts })
+    this.state.attempts.push(attempt)
+    const current = this.state.factProgress[question.factKey] || emptyFactProgress(question.factKey, Math.min(question.a, question.b), Math.max(question.a, question.b))
+    this.state.factProgress[question.factKey] = updateFactProgress(current, attempt)
+    this.session.answered.push(attempt)
+    this.session.feedback = { attempt, correct }
+    this.persist()
+    this.dispatchEvent(new Event('change'))
+    return attempt
+  }
+
+  retryCurrent() {
+    if (!this.session?.feedback || this.session.feedback.correct) return
+    this.session.feedback = null
+    this.session.hints = 0
+    this.session.questionStartedAt = clockNow()
+    this.emit()
+  }
+
+  advance() {
+    if (!this.session?.feedback) return
+    if (this.session.index >= this.session.queue.length - 1) {
+      this.state.lastReport = buildSessionReport(this.session.answered, this.session.queue, this.state.attempts, this.state.factProgress, { mode: this.session.mode, table: this.session.table })
+      this.state.sessionsCompleted += 1
+      this.session = null
+      this.state.route = 'results'
+      this.emit()
+      return
+    }
+    this.session.index += 1
+    this.session.feedback = null
+    this.session.hints = 0
+    this.session.questionStartedAt = clockNow()
+    this.emit()
+  }
+
+  abortSession() {
+    this.session = null
+    this.navigate('home')
+  }
+
+  unlockAdult(answer) {
+    this.adultUnlocked = String(answer).trim() === '5'
+    this.emit()
+    return this.adultUnlocked
+  }
+
+  reset() {
+    clearState()
+    this.state = createInitialState()
+    this.session = null
+    this.adultUnlocked = false
+    this.emit()
+  }
+}
+
+exports.AppStore = AppStore;
+},"/src/domain/errors.js": (module, exports, require) => {
+const {  ERROR_CODES  } = require("/src/domain/contracts.js");const {  normalizeInteger  } = require("/src/domain/math.js");const ERROR_LABELS = Object.freeze({
+  [ERROR_CODES.SUM_INSTEAD_PRODUCT]: 'soma no lugar de produto',
+  [ERROR_CODES.NEIGHBOR_FACT]: 'fato vizinho',
+  [ERROR_CODES.OFF_BY_ONE_GROUP]: 'contagem de um grupo',
+  [ERROR_CODES.ZERO_ONE_CONFUSION]: 'vezes zero ou um',
+  [ERROR_CODES.COUNTING_DRIFT]: 'contagem a conferir',
+  [ERROR_CODES.GUESS_PATTERN]: 'respostas muito rápidas',
+  [ERROR_CODES.UNKNOWN]: 'padrão ainda não claro'
+})
+
+const TUTOR_BY_ERROR = Object.freeze({
+  [ERROR_CODES.SUM_INSTEAD_PRODUCT]: 'Você juntou os dois números. Vamos abrir os grupos iguais: multiplicar repete um grupo.',
+  [ERROR_CODES.NEIGHBOR_FACT]: 'Você puxou um fato vizinho. Use o fato conhecido e acrescente ou retire um grupo.',
+  [ERROR_CODES.OFF_BY_ONE_GROUP]: 'A resposta ficou a um grupo de distância. Conte os grupos e confira a unidade.',
+  [ERROR_CODES.ZERO_ONE_CONFUSION]: 'Vamos conferir os casos especiais: grupos vazios dão zero; um grupo conserva a quantidade.',
+  [ERROR_CODES.COUNTING_DRIFT]: 'A conta não fechou ainda. Desenhe os grupos ou uma grade pequena.',
+  [ERROR_CODES.GUESS_PATTERN]: 'Pingo notou várias tentativas rápidas. Vamos respirar e recuperar um fato por vez.',
+  [ERROR_CODES.UNKNOWN]: 'Ainda não há pista suficiente. Tente outra representação antes de concluir.'
+})
+
+function sameNumber(value, candidate) {
+  return Number.isInteger(candidate) && value === candidate
+}
+
+/**
+ * Classifica somente sinais observáveis. Não é diagnóstico clínico.
+ * @param {object} question
+ * @param {unknown} response
+ * @param {{recentAttempts?: Array<object>}} options
+ */
+function classifyFactError(question, response, { recentAttempts = [] } = {}) {
+  const value = normalizeInteger(response)
+  if (!Number.isInteger(value)) return ERROR_CODES.UNKNOWN
+  const { a, b, answer } = question
+
+  if ((a === 0 || b === 0 || a === 1 || b === 1) && sameNumber(value, a + b) && value !== answer) {
+    return ERROR_CODES.ZERO_ONE_CONFUSION
+  }
+  if (sameNumber(value, a + b) && value !== answer) return ERROR_CODES.SUM_INSTEAD_PRODUCT
+
+  const neighbors = new Set()
+  for (const candidate of [a * (b - 1), a * (b + 1), (a - 1) * b, (a + 1) * b]) {
+    if (candidate >= 0 && candidate !== answer) neighbors.add(candidate)
+  }
+  if (neighbors.has(value)) return ERROR_CODES.NEIGHBOR_FACT
+
+  if (value === answer - a || value === answer + a || value === answer - b || value === answer + b) {
+    return ERROR_CODES.OFF_BY_ONE_GROUP
+  }
+
+  if (Math.abs(value - answer) <= 2 && value !== answer) return ERROR_CODES.COUNTING_DRIFT
+
+  const fastWrong = recentAttempts.filter((attempt) => !attempt.correct && attempt.elapsedMs > 0 && attempt.elapsedMs < 1800)
+  const recentFacts = new Set(fastWrong.slice(-4).map((attempt) => attempt.factKey))
+  if (fastWrong.length >= 3 && recentFacts.size >= 3) return ERROR_CODES.GUESS_PATTERN
+  return ERROR_CODES.UNKNOWN
+}
+
+exports.ERROR_LABELS = ERROR_LABELS;
+exports.TUTOR_BY_ERROR = TUTOR_BY_ERROR;
+exports.classifyFactError = classifyFactError;
+},"/src/domain/contracts.js": (module, exports, require) => {
+const APP_VERSION = '0.2.0'
+const SCHEMA_VERSION = 1
+const TABLE_MIN
