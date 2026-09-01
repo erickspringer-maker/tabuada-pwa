@@ -1,0 +1,36 @@
+s = report.focusFacts?.length ? report.focusFacts.map((item) => `<li><strong>${formatFact(item.key)}</strong><span>${item.wrong} erro(s) em ${item.attempts} tentativa(s)</span></li>`).join('') : '<li><strong>Nenhum ponto de atenção recorrente.</strong><span>Continue misturando fatos.</span></li>'
+  const page = view(`<main class="page results-page"><section class="result-hero panel"><div><span class="eyebrow">Rota concluída</span><h1>${title}</h1><p>${intro}</p></div><div class="result-score"><strong>${report.solved}</strong><span>de ${report.questions} placas acesas</span></div></section><section class="result-grid"><article class="panel result-card"><span class="eyebrow">Evidência da sessão</span><h2>${report.independent} tentativa(s) independente(s)</h2><p>${report.assisted ? `${report.assisted} acerto(s) aconteceram com pista — isso também é aprendizagem, só fica separado.` : 'Os acertos aconteceram sem pista nesta sessão.'}</p><p class="microcopy">Foram registradas ${report.attempts} tentativa(s), contando repetições.</p></article><article class="panel result-card"><span class="eyebrow">Pingo recomenda</span><h2>${escapeHtml(report.bot.message)}</h2><p>${escapeHtml(report.bot.recommendation)}</p></article></section><section class="panel focus-card"><span class="eyebrow">Próxima manutenção</span><h2>Fatos que merecem reencontro</h2><ul class="focus-list">${facts}</ul></section><section class="next-actions">${repeatButton}${followUpButton}<button class="text-button" data-home>Voltar ao início</button></section></main>`)
+  page.querySelectorAll('[data-start]').forEach((button) => button.addEventListener('click', () => store.startSession(button.dataset.start, button.dataset.table ? { table: Number(button.dataset.table) } : {})))
+  page.querySelector('[data-home]')?.addEventListener('click', () => store.navigate('home'))
+  return page
+}
+
+exports.resultsScreen = resultsScreen;
+},"/src/ui/screens/adult.js": (module, exports, require) => {
+const {  analyzeAttempts  } = require("/src/application/bot.js");const {  confidenceOf  } = require("/src/domain/mastery.js");const {  exportState  } = require("/src/infrastructure/storage.js");const {  factTable, escapeHtml, formatFact, formatDuration, STATUS_LABELS  } = require("/src/ui/helpers.js");const {  view  } = require("/src/ui/view.js");function downloadJson(content) {
+  const blob = new Blob([content], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = 'tabuada-em-jogo-progresso.json'
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+function adultScreen(store) {
+  if (!store.adultUnlocked) {
+    const page = view('<main class="page adult-gate panel"><span class="eyebrow">Área do adulto</span><h1>Antes de abrir o painel</h1><p>Esta barreira evita acesso casual. Ela não é uma autenticação forte.</p><form><label for="adult-answer">Quanto é 2 + 3?</label><div class="answer-row"><input id="adult-answer" inputmode="numeric" type="text" required><button class="button button-primary" type="submit">Abrir painel</button></div><p class="form-message" aria-live="polite"></p></form></main>')
+    page.querySelector('form').addEventListener('submit', (event) => {
+      event.preventDefault()
+      const input = event.currentTarget.elements[0]
+      if (!store.unlockAdult(input.value)) page.querySelector('.form-message').textContent = 'Tente novamente. É uma conta curta, sem pressa.'
+    })
+    return page
+  }
+  const { state } = store
+  const bot = analyzeAttempts(state.attempts, state.factProgress)
+  const errorRows = bot.errors.length ? bot.errors.slice(0, 5).map((item) => `<li><strong>${item.count}× ${escapeHtml(item.label)}</strong><span>${escapeHtml(item.code)}</span></li>`).join('') : '<li><strong>Ainda não há erro recorrente.</strong><span>O painel será atualizado com o uso.</span></li>'
+  const factRows = bot.facts.length ? bot.facts.map((item) => `<li><strong>${formatFact(item.key)}</strong><span>${item.wrong} erro(s), confiança ${item.confidence}%</span></li>`).join('') : '<li><strong>Nenhum fato observado ainda.</strong></li>'
+  const slowRows = bot.timing.slowRecall.length ? bot.timing.slowRecall.slice(0, 5).map((item) => `<li><strong>${formatFact(item.key)}</strong><span>mediana observada ${formatDuration(item.medianMs)}</span></li>`).join('') : '<li><strong>Ainda não há sinal temporal suficiente.</strong><span>São necessárias pelo menos três tentativas do fato.</span></li>'
+  const guessRows = bot.timing.fastGuess.length ? bot.timing.fastGuess.slice(0, 5).map((item) => `<li><strong>${formatFact(item.key)}</strong><span>respostas rápidas e incorretas repetidas</span></li>`).join('') : '<li><strong>Nenhum padrão de chute sugerido.</strong><span>O tempo nunca é lido sozinho.</span></li>'
+  const page = view(`<main class="page adult-page"><div class="section-heading"><div><span class="eyebrow">Painel local</span><h1>Leitura do percurso</h1></div><span class="local-badge">dados no dispositivo</span></div><section class="adult-grid"><article class="panel"><span class="eyebrow">Sugestão do Pingo</span><h2>${escapeHtml(bot.message)}</h2><p>${escapeHtml(bot.recommendation)}</p><p class="microcopy">Isto é uma leitura de tentativas, não um diagnóstico clínico.</p></article><article class="panel"><span class="eyebrow">Atividade</span><div class="adult-metrics"><strong>${state.attempts.length}<small>tentativas</small></strong><strong>${state.sessionsCompleted}<small>sessões</
