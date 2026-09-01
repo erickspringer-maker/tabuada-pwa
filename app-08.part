@@ -1,0 +1,81 @@
+/h2></div><p>O número é confiança observada, não nota.</p></div>${factTable(state.factProgress)}<div class="legend"><span><i class="legend-dot legend-new"></i> novo</span><span><i class="legend-dot legend-practice"></i> treino</span><span><i class="legend-dot legend-revisit"></i> reforçar</span><span><i class="legend-dot legend-steady"></i> firme por enquanto</span></div></section></main>`)
+  page.querySelectorAll('[data-start]').forEach((button) => button.addEventListener('click', () => store.startSession(button.dataset.start, button.dataset.table ? { table: Number(button.dataset.table) } : {})))
+  return page
+}
+
+exports.homeScreen = homeScreen;
+},"/src/ui/helpers.js": (module, exports, require) => {
+const {  TABLE_MAX  } = require("/src/domain/contracts.js");const {  confidenceOf  } = require("/src/domain/mastery.js");const {  canonicalKey  } = require("/src/domain/math.js");const {  escapeHtml, formatFact  } = require("/src/ui/view.js");const STATUS_LABELS = Object.freeze({ new: 'novo', practice: 'em treino', revisit: 'reforçar', steady: 'firme por enquanto' })
+
+function progressCell(progress, a, b) {
+  const item = progress[canonicalKey(a, b)]
+  const status = item?.status || 'new'
+  const confidence = confidenceOf(item)
+  return `<td class="fact-cell fact-${status}" title="${formatFact(canonicalKey(a, b))}: ${STATUS_LABELS[status]}"><span>${item ? confidence : '·'}</span></td>`
+}
+
+function factTable(progress) {
+  const headers = Array.from({ length: TABLE_MAX + 1 }, (_, index) => `<th scope="col">${index}</th>`).join('')
+  const rows = Array.from({ length: TABLE_MAX + 1 }, (_, a) => `<tr><th scope="row">${a}</th>${Array.from({ length: TABLE_MAX + 1 }, (_, b) => progressCell(progress, a, b)).join('')}</tr>`).join('')
+  return `<div class="table-scroll"><table class="fact-table"><caption>Confiança observada por fato. Quanto mais alto, mais acertos independentes foram registrados.</caption><thead><tr><th scope="col">×</th>${headers}</tr></thead><tbody>${rows}</tbody></table></div>`
+}
+
+function safeFocus(selector) {
+  globalThis.setTimeout?.(() => document.querySelector(selector)?.focus(), 0)
+}
+
+function formatDuration(milliseconds) {
+  if (!Number.isFinite(milliseconds)) return '—'
+  return `${(milliseconds / 1000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} s`
+}
+
+
+
+exports.STATUS_LABELS = STATUS_LABELS;
+exports.progressCell = progressCell;
+exports.factTable = factTable;
+exports.safeFocus = safeFocus;
+exports.formatDuration = formatDuration;
+exports.escapeHtml = escapeHtml;
+exports.formatFact = formatFact;
+},"/src/ui/view.js": (module, exports, require) => {
+function view(markup) {
+  const template = document.createElement('template')
+  template.innerHTML = markup.trim()
+  return template.content.firstElementChild
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[character])
+}
+
+function speak(text, enabled) {
+  if (!enabled || !('speechSynthesis' in globalThis)) return
+  globalThis.speechSynthesis.cancel()
+  const utterance = new SpeechSynthesisUtterance(text)
+  utterance.lang = 'pt-BR'
+  utterance.rate = 0.92
+  globalThis.speechSynthesis.speak(utterance)
+}
+
+function formatFact(key) { return String(key).replace('x', ' × ') }
+
+exports.view = view;
+exports.escapeHtml = escapeHtml;
+exports.speak = speak;
+exports.formatFact = formatFact;
+},"/src/ui/screens/play.js": (module, exports, require) => {
+const {  TUTOR_BY_ERROR  } = require("/src/domain/errors.js");const {  explainSelection  } = require("/src/application/adaptive.js");const {  safeFocus, escapeHtml, formatFact  } = require("/src/ui/helpers.js");const {  speak, view  } = require("/src/ui/view.js");function playScreen(store) {
+  const session = store.session
+  if (!session) return view('<main class="page empty-page panel"><h1>Nenhuma sessão aberta</h1><button class="button button-primary" data-home>Voltar ao início</button></main>')
+  const question = session.queue[session.index]
+  const feedback = session.feedback
+  const progress = Math.round((session.index / session.queue.length) * 100)
+  const sequential = session.mode === 'sequential'
+  const cycle = question.cycle ?? 0
+  const cycleOrder = Array.from({ length: 11 }, (_, index) => index).map((value) => cycle % 2 ? 10 - value : value)
+  const hint = session.hints ? question.hints[session.hints - 1] : ''
+  const attempt = feedback?.attempt
+  const tone = feedback?.correct ? 'success' : 'warn'
+  const feedbackMarkup = feedback ? `<section class="feedback feedback-${tone}" aria-live="polite"><div class="feedback-symbol" aria-hidden="true">${feedback.correct ? '✓' : '!'}</div><div><span class="eyebrow">${feedback.correct ? 'Placa acesa' : 'Pista encontrada'}</span><h2>${feedback.correct ? 'Essa relação fechou.' : 'Esta tentativa mostrou um caminho.'}</h2><p>${feedback.correct ? escapeHtml(question.explanation) : escapeHtml(TUTOR_BY_ERROR[attempt.errorCode] || 'Vamos mudar a forma de olhar para esta conta.')}</p>${feedback.correct ? '' : `<p class="attempt-note">Você respondeu <strong>${escapeHtml(attempt.response || 'em branco')}</strong>. O fato continua disponível para outra tentativa.</p>`}</div></section>` : ''
+  const strip = sequential ? `<div class="sequence-strip" aria-label="Progresso nesta volta">${cycleOrder.map((value, index) => `<span class="sequence-step ${index < question.sequenceIndex ? 'is-done' : ''} ${index === question.sequ
