@@ -1,0 +1,100 @@
+(()=>{const modules={"/src/main.js": (module, exports, require) => {
+require("/src/ui/app.js");document.querySelector('#root').replaceChildren(document.createElement('tabuada-app'))
+
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+  globalThis.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => undefined))
+}
+
+},"/src/ui/app.js": (module, exports, require) => {
+const {  AppStore  } = require("/src/application/store.js");const {  homeScreen  } = require("/src/ui/screens/home.js");const {  playScreen  } = require("/src/ui/screens/play.js");const {  resultsScreen  } = require("/src/ui/screens/results.js");const {  adultScreen  } = require("/src/ui/screens/adult.js");require("/src/ui/components/pingo-tip.js");const {  view  } = require("/src/ui/view.js");const routes = { home: homeScreen, play: playScreen, results: resultsScreen, adult: adultScreen }
+
+class TabuadaApp extends HTMLElement {
+  constructor() {
+    super()
+    this.store = new AppStore()
+    this.store.addEventListener('change', () => this.render())
+  }
+
+  connectedCallback() { this.render() }
+
+  topbar() {
+    const { route, settings } = this.store.state
+    const bar = view(`<header class="topbar"><button class="brand-button" data-home aria-label="Ir para o início"><span class="brand-mark" aria-hidden="true">×</span><span><strong>Tabuada em Jogo</strong><small>estação de treino</small></span></button><nav aria-label="Navegação principal"><button class="nav-pill ${route === 'home' ? 'is-active' : ''}" data-home>Início</button><span class="offline-badge"><i></i> local</span><button class="icon-button" data-sound aria-label="${settings.sound ? 'Desativar som' : 'Ativar som'}" aria-pressed="${settings.sound}">${settings.sound ? '◖))' : '◖×'}</button><button class="icon-button" data-motion aria-label="${settings.reducedMotion ? 'Ativar movimento' : 'Reduzir movimento'}" aria-pressed="${settings.reducedMotion}">≈</button></nav></header>`)
+    bar.querySelectorAll('[data-home]').forEach((button) => button.addEventListener('click', () => this.store.navigate('home')))
+    bar.querySelector('[data-sound]').addEventListener('click', () => this.store.toggleSound())
+    bar.querySelector('[data-motion]').addEventListener('click', () => this.store.toggleMotion())
+    return bar
+  }
+
+  render() {
+    const route = routes[this.store.state.route] ? this.store.state.route : 'home'
+    document.documentElement.classList.toggle('reduce-motion', this.store.state.settings.reducedMotion)
+    const footer = view(`<footer class="app-footer"><span>Tabuada em Jogo 0.2.0 · progresso local</span><button class="text-button" data-adult>Área do adulto</button></footer>`)
+    footer.querySelector('[data-adult]').addEventListener('click', () => this.store.navigate('adult'))
+    this.replaceChildren(this.topbar(), routes[route](this.store), footer)
+  }
+}
+
+customElements.define('tabuada-app', TabuadaApp)
+
+exports.TabuadaApp = TabuadaApp;
+},"/src/application/store.js": (module, exports, require) => {
+const {  classifyFactError  } = require("/src/domain/errors.js");const {  emptyFactProgress, normalizeElapsedMs, updateFactProgress  } = require("/src/domain/mastery.js");const {  validateAnswer  } = require("/src/domain/math.js");const {  buildSessionQueue  } = require("/src/application/adaptive.js");const {  buildSessionReport  } = require("/src/application/bot.js");const {  createId, loadState, saveState, clearState, createInitialState  } = require("/src/infrastructure/storage.js");function clockNow() {
+  return globalThis.performance?.now?.() ?? Date.now()
+}
+
+class AppStore extends EventTarget {
+  constructor() {
+    super()
+    this.state = loadState()
+    this.session = null
+    this.adultUnlocked = false
+  }
+
+  persist() { saveState(this.state) }
+
+  emit() {
+    this.persist()
+    this.dispatchEvent(new Event('change'))
+  }
+
+  navigate(route) {
+    this.state.route = route
+    this.emit()
+    globalThis.scrollTo?.({ top: 0, behavior: this.state.settings.reducedMotion ? 'auto' : 'smooth' })
+  }
+
+  setNickname(nickname) {
+    this.state.profile.nickname = String(nickname).trim().slice(0, 20) || 'Exploradora'
+    this.emit()
+  }
+
+  toggleSound() { this.state.settings.sound = !this.state.settings.sound; this.emit() }
+  toggleMotion() { this.state.settings.reducedMotion = !this.state.settings.reducedMotion; this.emit() }
+
+  startSession(mode = 'sequential', options = {}) {
+    const table = Number.isInteger(options.table) ? options.table : undefined
+    const queue = buildSessionQueue(mode, this.state.factProgress, Date.now(), new Date(), { table })
+    this.session = {
+      id: createId(), mode, table: queue[0]?.table ?? null, cycles: queue[0]?.mode === 'sequential' ? 3 : null,
+      queue, index: 0, answered: [], feedback: null, hints: 0, questionStartedAt: clockNow()
+    }
+    this.state.route = 'play'
+    this.emit()
+  }
+
+  currentQuestion() { return this.session?.queue[this.session.index] || null }
+
+  useHint() {
+    if (!this.session || this.session.feedback) return
+    this.session.hints = Math.min(3, this.session.hints + 1)
+    this.emit()
+  }
+
+  submit(response) {
+    const question = this.currentQuestion()
+    if (!this.session || !question || this.session.feedback) return null
+    const correct = validateAnswer(question, response)
+    const attempt = {
+      id: createId(), sessionId: this.session.id, questionId: question.id, factKey: question.factKey,
+      a: question.a, b: question.b, mode: question
