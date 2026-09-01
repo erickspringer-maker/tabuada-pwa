@@ -1,0 +1,45 @@
+urn { ...createInitialState(), ...parsed, route: 'home', attempts: parsed.attempts.slice(-1000) }
+  } catch {
+    return createInitialState()
+  }
+}
+
+function saveState(state, storage = globalThis.localStorage) {
+  if (!storage) return
+  storage.setItem(STORAGE_KEY, JSON.stringify({ ...state, route: 'home', attempts: state.attempts.slice(-1000) }))
+}
+
+function clearState(storage = globalThis.localStorage) {
+  storage?.removeItem(STORAGE_KEY)
+}
+
+function exportState(state) {
+  return JSON.stringify({ exportedAt: new Date().toISOString(), ...state, route: 'home' }, null, 2)
+}
+
+exports.STORAGE_KEY = STORAGE_KEY;
+exports.createId = createId;
+exports.createInitialState = createInitialState;
+exports.loadState = loadState;
+exports.saveState = saveState;
+exports.clearState = clearState;
+exports.exportState = exportState;
+},"/src/ui/screens/home.js": (module, exports, require) => {
+const {  MODES  } = require("/src/domain/contracts.js");const {  analyzeAttempts  } = require("/src/application/bot.js");const {  tableReadiness, suggestedTable  } = require("/src/application/adaptive.js");const {  factBank  } = require("/src/content/facts.js");const {  factTable, escapeHtml  } = require("/src/ui/helpers.js");const {  view  } = require("/src/ui/view.js");function modeCard(mode, config, description) {
+  return `<article class="mode-card"><div class="mode-icon" aria-hidden="true">${mode === 'reinforce' ? '✦' : mode === 'complete' ? '66' : mode === 'marathon' ? '↗' : '◎'}</div><div><span class="eyebrow">${config.length} fatos</span><h3>${config.label}</h3><p>${description}</p></div><button class="button button-primary" data-start="${mode}">Começar</button></article>`
+}
+
+function tableChoice(table, readiness, active) {
+  const state = readiness.ready ? 'pronta para misturar' : readiness.practiced ? `${readiness.practiced}/11 fatos vistos` : 'começar agora'
+  return `<button class="table-choice ${table === active ? 'is-suggested' : ''} ${readiness.ready ? 'is-ready' : ''}" data-start="sequential" data-table="${table}" aria-label="Treinar tabuada do ${table}, ${state}"><strong>${table}</strong><span>${state}</span></button>`
+}
+
+function homeScreen(store) {
+  const { state } = store
+  const bot = analyzeAttempts(state.attempts, state.factProgress)
+  const practiced = Object.keys(state.factProgress).length
+  const independent = Object.values(state.factProgress).reduce((sum, item) => sum + item.independentCorrect, 0)
+  const nextTable = suggestedTable(state.factProgress)
+  const tableChoices = Array.from({ length: 11 }, (_, table) => tableChoice(table, tableReadiness(state.factProgress, table), nextTable)).join('')
+  const nextReadiness = tableReadiness(state.factProgress, nextTable)
+  const page = view(`<main class="page home-page"><section class="hero panel"><div class="hero-copy"><span class="eyebrow">Estação de treino local</span><h1>Uma tabuada por vez.</h1><p class="hero-lead">Três voltas curtas para lembrar, repetir e acender cada fato. Sem corrida, sem vidas e sem confusão.</p><div class="hero-actions"><button class="button button-primary button-large" data-start="sequential" data-table="${nextTable}">Continuar tabuada do ${nextTable} <span>33</span></button></div><p class="microcopy hero-note">A próxima sugerida é a tabuada do ${nextTable}. Você pode trocar abaixo.</p></div><div class="station-illustration" aria-label="Uma estação com placas de tabuada acesas"><div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><div class="station-core"><span>×</span><small>3 voltas</small></div><i class="spark spark-one">✦</i><i class="spark spark-two">✦</i><i class="spark spark-three">✦</i></div></section><section class="quick-stats" aria-label="Resumo do percurso"><article class="stat-card"><span>Fatos visitados</span><strong>${practiced}/${factBank.length}</strong></article><article class="stat-card"><span>Acertos independentes</span><strong>${independent}</strong></article><article class="stat-card"><span>Sessões concluídas</span><strong>${state.sessionsCompleted}</strong></article></section><section class="section-heading"><div><span class="eyebrow">Trilha principal</span><h2>Qual tabuada vamos acender?</h2></div><p>Primeiro em sequência. A conferência misturada vem depois.</p></section><section class="table-picker" aria-label="Escolha uma tabuada">${tableChoices}</section><p class="microcopy sequence-explanation">Cada sessão percorre ${nextReadiness.ready ? 'novamente' : 'todos'} os fatos de 0 a 10 em três voltas. O Pingo observa os pontos que pedem mais reencontro.</p><section class="secondary-modes"><details><summary>Outras formas de treinar</summary><div class="mode-grid">${modeCard('guided', MODES.guided, 'Mistura fatos novos, vencidos e conhecidos para conferir a lembrança.')}${modeCard('reinforce', MODES.reinforce, 'Três passagens pelos seis pontos de maior atenção, em formas diferentes.')}${modeCard('marathon', MODES.marathon, 'Prática cumulativa para fortalecer a lembrança.')}${modeCard('complete', MODES.complete, 'Um percurso por cada par canônico de 0 a 10.')}</div></details></section><section class="panel bot-panel"><div><span class="eyebrow">Leitura do Pingo</span><h2>O próximo reforço</h2><p>${escapeHtml(bot.message)}</p></div><div class="bot-recommendation"><span>Recomendação</span><strong>${escapeHtml(bot.recommendation)}</strong></div></section><section class="panel grid-panel"><div class="section-heading compact"><div><span class="eyebrow">Mapa dos fatos</span><h2>O que já ganhou caminho<
