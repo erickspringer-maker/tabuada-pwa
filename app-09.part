@@ -1,0 +1,35 @@
+enceIndex ? 'is-current' : ''}"><i>${value}</i></span>`).join('')}</div>` : `<div class="route-mini" aria-label="Rota da estação">${Array.from({ length: 7 }, (_, index) => `<i class="route-light ${index <= session.index % 7 ? 'is-on' : ''}"></i>`).join('')}</div>`
+  const sideTitle = sequential ? `Tabuada do ${question.table}` : `Fato ${formatFact(question.factKey)}`
+  const sideText = sequential ? `Volta ${cycle + 1} de ${session.cycles}. Vamos passar pelos fatos em ordem.` : explainSelection(question, store.state.factProgress)
+  const badge = sequential ? `volta ${cycle + 1} · recuperação direta` : question.representation === 'retrieval' ? 'puxar da memória' : question.representation === 'array' ? 'ver em grade' : question.representation === 'groups' ? 'ver em grupos' : question.representation === 'decomposition' ? 'quebrar em partes' : 'família de fatos'
+  const count = sequential ? `Volta ${cycle + 1}/3 · ${question.sequenceIndex + 1}/11` : `${session.index + 1}/${session.queue.length}`
+  const page = view(`<main class="page play-page"><div class="play-top"><button class="text-button" data-abort>← Sair da sessão</button><span class="session-label">${sequential ? `Tabuada do ${question.table}` : session.mode === 'reinforce' ? 'Reforço do Pingo' : 'Expedição da tabuada'}</span><span class="question-count">${count}</span></div><div class="progress-rail" aria-label="Progresso da sessão"><span style="width:${progress}%"></span></div><section class="question-layout"><div class="question-side"><p class="eyebrow">${sideTitle}</p><p class="selection-reason">${escapeHtml(sideText)}</p>${strip}<p class="microcopy">A resposta acende a próxima placa. Pensar com calma também faz parte.</p></div><section class="question-card panel"><div class="question-badge">${badge}</div><h1>${escapeHtml(question.prompt)}</h1>${feedbackMarkup || `<form class="answer-form"><label for="answer">Sua resposta</label><div class="answer-row"><input id="answer" name="answer" type="text" inputmode="numeric" autocomplete="off" pattern="[0-9]*" maxlength="4" aria-describedby="answer-help" required><button class="button button-primary button-large" type="submit">Acender</button></div><p id="answer-help" class="microcopy">Digite a resposta para acender a placa.</p>${hint ? `<div class="hint-box"><span class="eyebrow">Pista ${session.hints}</span><p>${escapeHtml(hint)}</p></div>` : ''}<button class="button button-quiet hint-button" type="button" data-hint ${session.hints >= 3 ? 'disabled' : ''}>${session.hints >= 3 ? 'Todas as pistas abertas' : 'Pedir uma pista'}</button></form>`}${feedback ? `<div class="feedback-actions">${feedback.correct ? '' : '<button class="button button-secondary" data-retry>Tentar outra vez</button>'}<button class="button button-primary" data-next>${session.index === session.queue.length - 1 ? 'Ver fechamento' : 'Próximo fato →'}</button></div>` : ''}</section></section></main>`)
+  page.querySelector('[data-abort]')?.addEventListener('click', () => store.abortSession())
+  page.querySelector('[data-home]')?.addEventListener('click', () => store.navigate('home'))
+  page.querySelector('[data-hint]')?.addEventListener('click', () => store.useHint())
+  page.querySelector('[data-retry]')?.addEventListener('click', () => store.retryCurrent())
+  page.querySelector('[data-next]')?.addEventListener('click', () => store.advance())
+  page.querySelector('.answer-form')?.addEventListener('submit', (event) => {
+    event.preventDefault()
+    const input = event.currentTarget.elements.answer
+    if (!input.value.trim()) { input.setCustomValidity('Digite uma resposta para continuar.'); input.reportValidity(); return }
+    input.setCustomValidity('')
+    const result = store.submit(input.value)
+    if (result) speak(result.correct ? question.explanation : 'Vamos observar o caminho dessa tentativa.', store.state.settings.sound)
+  })
+  if (!feedback) safeFocus('#answer')
+  return page
+}
+
+exports.playScreen = playScreen;
+},"/src/ui/screens/results.js": (module, exports, require) => {
+const {  tableReadiness  } = require("/src/application/adaptive.js");const {  escapeHtml, formatFact  } = require("/src/ui/helpers.js");const {  view  } = require("/src/ui/view.js");function resultsScreen(store) {
+  const report = store.state.lastReport
+  if (!report) return view('<main class="page empty-page panel"><h1>Ainda não há fechamento</h1><button class="button button-primary" data-home>Voltar ao início</button></main>')
+  const sequential = report.mode === 'sequential'
+  const title = sequential ? `Você fez as três voltas da tabuada do ${report.table}.` : 'Você manteve o circuito ligado.'
+  const intro = sequential ? 'A mesma tabuada apareceu em ordem para ajudar a lembrança a ficar disponível.' : 'O que importa aqui é quais fatos você recuperou e quais merecem outra passagem.'
+  const repeatButton = sequential ? `<button class="button button-primary button-large" data-start="sequential" data-table="${report.table}">Repetir tabuada do ${report.table}</button>` : '<button class="button button-primary button-large" data-start="reinforce">Fazer reforço do Pingo</button>'
+  const mixedReady = !sequential || tableReadiness(store.state.factProgress, report.table).ready
+  const followUpButton = mixedReady ? '<button class="button button-secondary" data-start="guided">Conferir fatos misturados</button>' : `<button class="button button-secondary" data-start="sequential" data-table="${report.table}">Fazer mais uma volta sequencial</button>`
+  const fact
