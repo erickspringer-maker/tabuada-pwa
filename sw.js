@@ -1,5 +1,5 @@
-const CACHE_NAME='tabuada-em-jogo-v2';
-const APP_SHELL=["./", "./index.html", "./manifest.webmanifest", "./icons/icon-192.png", "./icons/icon-512.png", "./style-01.css", "./style-02.css", "./style-03.css", "./style-04.css", "./app-01.part", "./app-02.part", "./app-03.part", "./app-04.part", "./app-05.part", "./app-06.part", "./app-07.part", "./app-08.part", "./app-09.part", "./app-10.part", "./app-11.part"];
+const CACHE_NAME='tabuada-em-jogo-v3';
+const APP_SHELL=["./", "./index.html", "./manifest.webmanifest", "./icons/icon.svg", "./style-01.css", "./style-02.css", "./style-03.css", "./style-04.css", "./app-01.part", "./app-02.part", "./app-03.part", "./app-04.part", "./app-05.part", "./app-06.part", "./app-07.part", "./app-08.part", "./app-09.part", "./app-10.part", "./app-11.part"];
 self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE_NAME).then(c=>c.addAll(APP_SHELL)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x!==CACHE_NAME).map(x=>caches.delete(x)))).then(()=>self.clients.claim())));
 self.addEventListener('fetch',e=>{if(e.request.method!=='GET')return;const u=new URL(e.request.url);if(u.origin!==self.location.origin)return;if(e.request.mode==='navigate'){e.respondWith(fetch(e.request).catch(()=>caches.match('./index.html')));return}e.respondWith(caches.match(e.request).then(c=>c||fetch(e.request)))});
