@@ -1,0 +1,116 @@
+xports.buildFactBank = buildFactBank;
+},"/src/domain/mastery.js": (module, exports, require) => {
+const {  FACT_STATUS  } = require("/src/domain/contracts.js");function emptyFactProgress(key, a, b) {
+  return {
+    key, a, b, attempts: 0, correct: 0, independentCorrect: 0, supportedCorrect: 0, wrong: 0,
+    streak: 0, status: FACT_STATUS.NEW, errorCounts: {}, representationsSeen: [],
+    intervalHours: 0, dueAt: null, lastPracticedAt: null, lastElapsedMs: null,
+    responseTimes: [], independentResponseTimes: [], medianResponseMs: null
+  }
+}
+
+function median(values = []) {
+  const numbers = values.filter((value) => Number.isFinite(value)).sort((left, right) => left - right)
+  if (!numbers.length) return null
+  const middle = Math.floor(numbers.length / 2)
+  return numbers.length % 2 ? numbers[middle] : Math.round((numbers[middle - 1] + numbers[middle]) / 2)
+}
+
+function normalizeElapsedMs(value) {
+  if (!Number.isFinite(value) || value <= 0) return null
+  return Math.min(60000, Math.max(100, Math.round(value / 100) * 100))
+}
+
+function nextIntervalHours(streak, correct) {
+  if (!correct) return 0.25
+  return [0.5, 1, 2, 4, 7 * 24, 14 * 24][Math.min(streak - 1, 5)]
+}
+
+/** @param {object} current @param {object} attempt */
+function updateFactProgress(current, attempt) {
+  const next = structuredClone(current)
+  next.responseTimes = Array.isArray(next.responseTimes) ? next.responseTimes : []
+  next.independentResponseTimes = Array.isArray(next.independentResponseTimes) ? next.independentResponseTimes : []
+  next.attempts += 1
+  next.lastPracticedAt = attempt.occurredAt
+  const elapsedMs = normalizeElapsedMs(attempt.elapsedMs)
+  if (elapsedMs !== null) {
+    next.lastElapsedMs = elapsedMs
+    next.responseTimes = [...next.responseTimes, elapsedMs].slice(-12)
+    next.medianResponseMs = median(next.responseTimes)
+  }
+  if (!next.representationsSeen.includes(attempt.representation)) next.representationsSeen.push(attempt.representation)
+  if (attempt.correct) {
+    next.correct += 1
+    next.streak += 1
+    if (attempt.hintLevel > 0) next.supportedCorrect += 1
+    else {
+      next.independentCorrect += 1
+      if (elapsedMs !== null) next.independentResponseTimes = [...next.independentResponseTimes, elapsedMs].slice(-12)
+    }
+  } else {
+    next.wrong += 1
+    next.streak = 0
+    if (attempt.errorCode) next.errorCounts[attempt.errorCode] = (next.errorCounts[attempt.errorCode] || 0) + 1
+  }
+  const recurring = Object.values(next.errorCounts).some((count) => count >= 2)
+  if (recurring || next.wrong > next.correct) next.status = FACT_STATUS.REVISIT
+  else if (next.independentCorrect >= 4 && next.streak >= 3) next.status = FACT_STATUS.STEADY
+  else next.status = FACT_STATUS.PRACTICE
+  next.intervalHours = nextIntervalHours(next.streak, attempt.correct)
+  const due = new Date(attempt.occurredAt)
+  due.setTime(due.getTime() + next.intervalHours * 60 * 60 * 1000)
+  next.dueAt = due.toISOString()
+  return next
+}
+
+function isDue(progress, now = new Date()) {
+  return !progress?.dueAt || new Date(progress.dueAt).getTime() <= new Date(now).getTime()
+}
+
+function confidenceOf(progress) {
+  if (!progress?.attempts) return 0
+  const independentWeight = progress.independentCorrect * 1.2
+  return Math.max(0, Math.min(100, Math.round(((independentWeight + progress.supportedCorrect * 0.5) / progress.attempts) * 100)))
+}
+
+exports.emptyFactProgress = emptyFactProgress;
+exports.median = median;
+exports.normalizeElapsedMs = normalizeElapsedMs;
+exports.updateFactProgress = updateFactProgress;
+exports.isDue = isDue;
+exports.confidenceOf = confidenceOf;
+},"/src/application/adaptive.js": (module, exports, require) => {
+const {  MODES, TABLE_ORDER, TABLE_MIN, TABLE_MAX  } = require("/src/domain/contracts.js");const {  isDue  } = require("/src/domain/mastery.js");const {  factBank, questionForFact, sequentialQuestionFor  } = require("/src/content/facts.js");const {  seededRandom  } = require("/src/domain/math.js");function tableReadiness(progress = {}, table) {
+  const states = Array.from({ length: TABLE_MAX - TABLE_MIN + 1 }, (_, multiplier) => {
+    const key = `${Math.min(table, multiplier)}x${Math.max(table, multiplier)}`
+    return progress[key]
+  })
+  const attempts = states.reduce((sum, item) => sum + (item?.attempts || 0), 0)
+  const independent = states.reduce((sum, item) => sum + (item?.independentCorrect || 0), 0)
+  const practiced = states.filter(Boolean).length
+  const everyFactPracticed = states.every((item) => (item?.independentCorrect || 0) >= 2)
+  const independentRate = attempts ? independent / attempts : 0
+  return {
+    table, attempts, independent, practiced, independentRate,
+    ready: everyFactPracticed && independentRate >= 0.8
+  }
+}
+
+function suggestedTable(progress = {}) {
+  const next = TABLE_ORDER.find((table) => !tableReadiness(progress, table).ready)
+  return next ?? TABLE_ORDER[0]
+}
+
+function weaknessScore(fact, progress, now) {
+  const item = progress[fact.key]
+  if (!item) return 100
+  const due = isDue(item, now) ? 35 : 0
+  const errorPressure = item.wrong * 12 + Object.values(item.errorCounts || {}).reduce((sum, count) => sum + count * 6, 0)
+  const lowEvidence = Math.max(0, 4 - item.independentCorrect) * 6
+  const slowRecall = item.attempts >= 3 && item.independentCorrect >= 2 && (item.medianResponseMs >= 4000 || item.lastElapsedMs >= 5000) ? 14 : 0
+  return due + errorPressure + lowEvidence + slowRecall + (item.status === 'revisit' ? 20 : 0)
+}
+
+function rankedFacts(progress, seed, now) {
+  const
